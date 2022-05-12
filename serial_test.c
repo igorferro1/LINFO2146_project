@@ -49,27 +49,26 @@ AUTOSTART_PROCESSES(&test_serial);
 PROCESS_THREAD(test_serial, ev, data)
 {
 
-  //static struct etimer timer;
+  // static struct etimer timer;
 
   PROCESS_BEGIN();
   serial_line_init();
   uart0_set_input(serial_line_input_byte);
 
-  //etimer_set(&timer, CLOCK_SECOND * 1000);
+  // etimer_set(&timer, CLOCK_SECOND * 1000);
   printf("Starting process\n");
-  while(1) {
-	
+  while (1)
+  {
+
     PROCESS_YIELD();
-    if(ev==serial_line_event_message){
-   	printf("received line: %s\n", (char*) data); 
+    if (ev == serial_line_event_message)
+    {
+      printf("received line: %s\n", (char *)data);
     }
-    //else if(etimer_expired(&timer)){
-    //    printf("timer expired\n");
-    //    etimer_reset(&timer); 
-    //}
-
-    
-
+    // else if(etimer_expired(&timer)){
+    //     printf("timer expired\n");
+    //     etimer_reset(&timer);
+    // }
   }
 
   PROCESS_END();

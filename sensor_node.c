@@ -61,7 +61,7 @@ struct routingEntry
     int alive;       // if this connection is alive
 };
 
-static struct routingEntry routingTable[64]; // static = init to 0 for all value
+static struct routingEntry routingTable[64];
 static int routingTSize = sizeof(routingTable) / sizeof(routingTable[0]);
 
 struct message rcv_msg;
@@ -415,45 +415,45 @@ PROCESS_THREAD(process_unic, ev, data)
 
             create_packet(1, 2, rank, rcv_msg.addr_dest_opening, rcv_msg.valueRead);
             NETSTACK_NETWORK.output(&parent_addr);
-
-            else if (!strcmp(data, "forwardCommand"))
-            {
-                LOG_INFO("Will pass the comamand to open");
-                LOG_INFO_("\n");
-                int presentInTable = 0;
-                int i;
-                linkaddr_t destinationCommand;
-                for (i = 0; i < routingTSize; i = i + 1)
-                {
-                    if (routingTable[i].target[0] == rcv_msg.addr_dest_opening[0] && routingTable[i].target[1] == rcv_msg.addr_dest_opening[1] && routingTable[i].alive)
-                    {
-                        // if the node that sent is present on the table, we just updated from where it came from
-                        destinationCommand.u8[0] = routingTable[i].nextJump[0];
-                        destinationCommand.u8[1] = routingTable[i].nextJump[1];
-                        presentInTable = 1;
-                        break;
-                    }
-                }
-
-                create_packet(1, 3, rank, rcv_msg.addr_dest_opening, rcv_msg.valueRead); /* announce that it's down as well */
-
-                if (presentInTable)
-                {
-                    NETSTACK_NETWORK.output(&destinationCommand);
-                    LOG_INFO("Found on table");
-                    LOG_INFO_("\n");
-                }
-                else
-                    NETSTACK_NETWORK.output(NULL);
-            }
-            else if (!strcmp(data, "openValve"))
-            {
-                leds_on(ALL_LEDS);
-                etimer_set(&timerValve, CLOCK_SECOND * 600);
-            }
-            else if (etimer_expired(&timerValve))
-                leds_off(ALL_LEDS);
         }
+        else if (!strcmp(data, "forwardCommand"))
+        {
+            LOG_INFO("Will pass the comamand to open");
+            LOG_INFO_("\n");
+            int presentInTable = 0;
+            int i;
+            linkaddr_t destinationCommand;
+            for (i = 0; i < routingTSize; i = i + 1)
+            {
+                if (routingTable[i].target[0] == rcv_msg.addr_dest_opening[0] && routingTable[i].target[1] == rcv_msg.addr_dest_opening[1] && routingTable[i].alive)
+                {
+                    // if the node that sent is present on the table, we just updated from where it came from
+                    destinationCommand.u8[0] = routingTable[i].nextJump[0];
+                    destinationCommand.u8[1] = routingTable[i].nextJump[1];
+                    presentInTable = 1;
+                    break;
+                }
+            }
 
-        PROCESS_END();
+            create_packet(1, 3, rank, rcv_msg.addr_dest_opening, rcv_msg.valueRead); /* announce that it's down as well */
+
+            if (presentInTable)
+            {
+                NETSTACK_NETWORK.output(&destinationCommand);
+                LOG_INFO("Found on table");
+                LOG_INFO_("\n");
+            }
+            else
+                NETSTACK_NETWORK.output(NULL);
+        }
+        else if (!strcmp(data, "openValve"))
+        {
+            leds_on(ALL_LEDS);
+            etimer_set(&timerValve, CLOCK_SECOND * 600);
+        }
+        else if (etimer_expired(&timerValve))
+            leds_off(ALL_LEDS);
     }
+
+    PROCESS_END();
+}
