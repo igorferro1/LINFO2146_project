@@ -66,20 +66,23 @@ void input_callback(const void *data, uint16_t len,
                     const linkaddr_t *src, const linkaddr_t *dest)
 {
   uint8_t bufRcv[6];
-  LOG_INFO("ENTROU");
-  LOG_INFO("RECEBIDO: %d", len);
-  LOG_INFO("REAL: %d", sizeof(bufRcv));
-  LOG_INFO_("\n");
   if (len == sizeof(bufRcv))
   {
+    LOG_INFO("Unicast received data");
+    LOG_INFO_("\n");
     memcpy(&bufRcv, data, sizeof(bufRcv));
-    int i = 0;
-    for (i = 0; i < 6; i = i + 1)
+    if (bufRcv[1] == 3)
     {
-      LOG_INFO("Received %u from ", bufRcv[i]);
-      LOG_INFO_LLADDR(src);
+      LOG_INFO("Received command to open");
       LOG_INFO_("\n");
     }
+    // // int i = 0;
+    // // for (i = 0; i < 6; i = i + 1)
+    // // {
+    // //   LOG_INFO("Received %u from ", bufRcv[i]);
+    // //   LOG_INFO_LLADDR(src);
+    // //   LOG_INFO_("\n");
+    // }
   }
 }
 // USED FOR TESTING!!!
@@ -88,7 +91,7 @@ PROCESS_THREAD(nullnet_example_process, ev, data)
 {
   static struct etimer periodic_timer;
   static unsigned count = 0;
-  static uint8_t bufRcv[6] = {1, 3, 3, 5, 0, 5};
+  static uint8_t bufRcv[6] = {1, 2, 5, 5, 0, 254};
   // announcement, broadcast, rank 6, value 5
   // bufRcv[3] = linkaddr_node_addr.u8[0];
   // bufRcv[4] = linkaddr_node_addr.u8[1];

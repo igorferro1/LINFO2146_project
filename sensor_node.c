@@ -75,14 +75,8 @@ static void create_packet(int broadUni, int mesType, int rankS, int addrSend[2],
     buf[3] = addrSend[0];
     buf[4] = addrSend[1];
     buf[5] = valueR;
-    LOG_INFO("Came to create the message, rank %d", buf[2]);
+    LOG_INFO("Came to create the message of type %d, rank %d", buf[1], buf[2]);
     LOG_INFO_("\n");
-    // new_message->broadOrUni = broadUni;
-    // new_message->mType = mesType;
-    // new_message->rankSender = rankS;
-    // new_message->addr_dest_opening[0] = addrSend[0];
-    // new_message->addr_dest_opening[1] = addrSend[1];
-    // new_message->valueRead = valueR;
     nullnet_buf = (uint8_t *)&buf;
     nullnet_len = sizeof(buf);
 }
@@ -112,25 +106,13 @@ void input_callback(const void *data, uint16_t len,
         (&rcv_msg)->addr_dest_opening[0] = bufRcv[3];
         (&rcv_msg)->addr_dest_opening[1] = bufRcv[4];
         (&rcv_msg)->valueRead = bufRcv[5];
-        int i = 0;
-        for (i = 0; i < 6; i++)
-        {
-            LOG_INFO("data %d, %d", i, bufRcv[i]);
-            LOG_INFO_("\n");
-        }
 
         if (rcv_msg.broadOrUni == 0)
-        {
-            LOG_INFO("Entrou no broaduni");
-            LOG_INFO_("\n");
             rcv_broadcast(rcv_msg, src);
-        }
         else
         {
             if (((&rcv_msg)->mType == 2 && (&rcv_msg)->rankSender == rank + 1) || ((&rcv_msg)->mType == 3 && (&rcv_msg)->rankSender == rank - 1))
             {
-                LOG_INFO("Entrou no unicast");
-                LOG_INFO_("\n");
                 rcv_unicast(rcv_msg, src);
             }
         }
@@ -165,14 +147,6 @@ void rcv_broadcast(struct message rcv_msg, const linkaddr_t *src)
     if (rcv_msg.mType == 0 && rcv_msg.rankSender < rank) /* "i can be your parent" message */
         if (rcv_msg.rankSender <= rank - 1)
         {
-            LOG_INFO("Entrou no i can be parent");
-            LOG_INFO_("\n");
-            LOG_INFO("cur: %d, %d", addrVal[0], addrVal[1]);
-            LOG_INFO_("\n");
-            LOG_INFO("new par: %d, %d", src->u8[0], src->u8[1]);
-            LOG_INFO_("\n");
-            LOG_INFO("RSSI CUR NEW: %d, %d", rssi_parent, packetbuf_attr(PACKETBUF_ATTR_RSSI));
-            LOG_INFO_("\n");
             if (rssi_parent < packetbuf_attr(PACKETBUF_ATTR_RSSI))
             { /* if it's better, it assumes the position of parent */
                 LOG_INFO("vai assumir");
@@ -191,17 +165,19 @@ void rcv_broadcast(struct message rcv_msg, const linkaddr_t *src)
         - we have to reset the parameters and try to find another parent*/
     if (rcv_msg.mType == 1 && addrVal[0] == src->u8[0] && addrVal[1] == src->u8[1])
     {
-        rank = 255;
-        addrVal[0] = 0;
-        addrVal[1] = 1;
-        parent_addr.u8[0] = 0;
-        parent_addr.u8[1] = 1;
-        rssi_parent = -1000;
+        if (rank != 2) /* only reset if it's not connected directly to root */
+        {
+            rank = 255;
+            addrVal[0] = 0;
+            addrVal[1] = 1;
+            parent_addr.u8[0] = 0;
+            parent_addr.u8[1] = 1;
+            rssi_parent = -1000;
+            int i;
+            for (i = 0; i < routingTSize; i = i + 1)
+                routingTable[i].alive = 0;
+        }
         process_post(&process_broad, PROCESS_EVENT_MSG, "parentDown");
-        int i;
-        for (i = 0; i < routingTSize; i = i + 1)
-            routingTable[i].alive = 0;
-        /* clean routing table maybe */
     }
     if (rcv_msg.mType == 1 && rcv_msg.rankSender > rank)
     {
@@ -278,43 +254,7 @@ void rcv_unicast(struct message rcv_msg, const linkaddr_t *src)
         }
     }
 }
-/*---------------------------------------------------------------------------
-    PROCESS FOR BROADCAST
-*/
-// PROCESS_THREAD(process_broad, ev, data)
-// {
-//     static struct etimer periodic_timer;
-//     static unsigned count = 0;
 
-//     PROCESS_BEGIN();
-
-// #if MAC_CONF_WITH_TSCH
-//     tsch_set_coordinator(linkaddr_cmp(&coordinator_addr, &linkaddr_node_addr));
-// #endif /* MAC_CONF_WITH_TSCH */
-
-//     /* Initialize NullNet */
-//     nullnet_buf = (uint8_t *)&count;
-//     nullnet_len = sizeof(count);
-//     nullnet_set_input_callback(input_callback);
-
-//     etimer_set(&periodic_timer, 8 * (CLOCK_SECOND));
-//     while (1)
-//     {
-//         PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&periodic_timer));
-//         LOG_INFO("Sending %u to ", count);
-//         LOG_INFO_LLADDR(NULL);
-//         LOG_INFO_("\n");
-
-//         memcpy(nullnet_buf, &count, sizeof(count));
-//         nullnet_len = sizeof(count);
-
-//         NETSTACK_NETWORK.output(NULL);
-//         count++;
-//         etimer_reset(&periodic_timer);
-//     }
-
-//     PROCESS_END();
-// }
 PROCESS_THREAD(process_broad, ev, data)
 {
     static struct etimer timerBroad;
@@ -343,8 +283,6 @@ PROCESS_THREAD(process_broad, ev, data)
         {
             LOG_INFO("Rank %d announcing...", rank);
             LOG_INFO_("\n");
-            etimer_set(&timerBroad, CLOCK_SECOND * 2 + random_rand() % (CLOCK_SECOND * 8));
-            PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&timerBroad));
             create_packet(0, 0, rank, addrNode, 0); // value doesn't matter here
             NETSTACK_NETWORK.output(NULL);
         }
@@ -352,15 +290,11 @@ PROCESS_THREAD(process_broad, ev, data)
         {
             LOG_INFO("node rank %d received broad and will announce", rank);
             LOG_INFO_("\n");
-            etimer_set(&timerBroad, CLOCK_SECOND * 2 + random_rand() % (CLOCK_SECOND * 8));
-            PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&timerBroad));
             create_packet(0, 0, rank, addrNode, 0); // value doesn't matter here
             NETSTACK_NETWORK.output(NULL);
         }
         else if (!strcmp(data, "parentDown"))
         {
-            etimer_set(&timerBroad, CLOCK_SECOND * 2 + random_rand() % (CLOCK_SECOND * 8));
-            PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&timerBroad));
             create_packet(0, 1, rank, addrNode, 0); /* announce that it's down as well */
             NETSTACK_NETWORK.output(NULL);
         }
@@ -372,7 +306,7 @@ PROCESS_THREAD(process_broad, ev, data)
 
 PROCESS_THREAD(process_unic, ev, data)
 {
-    static struct etimer timerValve, sendData;
+    static struct etimer timerValve, sendData, forwardData;
     // static uint8_t bufRcv[6];
     int addrNode[2];
     addrNode[0] = linkaddr_node_addr.u8[0];
@@ -399,52 +333,61 @@ PROCESS_THREAD(process_unic, ev, data)
         {
             int readValue = random_rand();
 
-            LOG_INFO("Sending %d as data", readValue); // change data generation method
+            LOG_INFO("Node %d sending %d as data", rank, readValue); // change data generation method
             LOG_INFO_("\n");
 
             etimer_set(&sendData, CLOCK_SECOND * 2 + random_rand() % (CLOCK_SECOND * 8));
             PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&sendData));
 
-            create_packet(1, 2, rank, addrNode, random_rand()); /* announce that it's down as well */
-            NETSTACK_NETWORK.output(&parent_addr);
+            create_packet(1, 2, rank, addrNode, 254); // random_rand()); /* send the data */
+            linkaddr_t parentData = {{addrVal[0], addrVal[1], 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}};
+            NETSTACK_NETWORK.output(&parentData);
+            LOG_INFO("Send data from itself");
+            LOG_INFO_("\n");
         }
         else if (!strcmp(data, "forwardData"))
         {
             LOG_INFO("Node rank %d will forward the data %d that received to parent %d %d", rank, rcv_msg.valueRead, (&parent_addr)->u8[0], (&parent_addr)->u8[1]);
             LOG_INFO_("\n");
 
+            etimer_set(&forwardData, CLOCK_SECOND * 2 + random_rand() % (CLOCK_SECOND * 8));
+            PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&forwardData));
+
             create_packet(1, 2, rank, rcv_msg.addr_dest_opening, rcv_msg.valueRead);
-            NETSTACK_NETWORK.output(&parent_addr);
+            linkaddr_t parentData = {{addrVal[0], addrVal[1], 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}};
+            NETSTACK_NETWORK.output(&parentData);
+            LOG_INFO("Send data from other node");
+            LOG_INFO_("\n");
         }
         else if (!strcmp(data, "forwardCommand"))
         {
-            LOG_INFO("Will pass the comamand to open");
+            LOG_INFO("Will pass the command to open");
             LOG_INFO_("\n");
             int presentInTable = 0;
             int i;
-            linkaddr_t destinationCommand;
+
+            create_packet(1, 3, rank, rcv_msg.addr_dest_opening, rcv_msg.valueRead);
+
             for (i = 0; i < routingTSize; i = i + 1)
             {
                 if (routingTable[i].target[0] == rcv_msg.addr_dest_opening[0] && routingTable[i].target[1] == rcv_msg.addr_dest_opening[1] && routingTable[i].alive)
                 {
                     // if the node that sent is present on the table, we just updated from where it came from
-                    destinationCommand.u8[0] = routingTable[i].nextJump[0];
-                    destinationCommand.u8[1] = routingTable[i].nextJump[1];
+                    LOG_INFO("Target %d %d, next jump %d %d", routingTable[i].target[0], routingTable[i].target[1], routingTable[i].nextJump[0], routingTable[i].nextJump[1]);
+                    LOG_INFO_("\n");
+                    linkaddr_t destinationCommand = {{routingTable[i].nextJump[0], routingTable[i].nextJump[1], 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}};
+                    NETSTACK_NETWORK.output(&destinationCommand);
+
                     presentInTable = 1;
                     break;
                 }
             }
 
-            create_packet(1, 3, rank, rcv_msg.addr_dest_opening, rcv_msg.valueRead); /* announce that it's down as well */
-
-            if (presentInTable)
+            if (!presentInTable)
             {
-                NETSTACK_NETWORK.output(&destinationCommand);
-                LOG_INFO("Found on table");
-                LOG_INFO_("\n");
-            }
-            else
+
                 NETSTACK_NETWORK.output(NULL);
+            }
         }
         else if (!strcmp(data, "openValve"))
         {
