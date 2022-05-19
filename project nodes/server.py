@@ -3,8 +3,7 @@ import socket
 import socket
 import argparse
 import sys
-
-PORT = 60001        
+   
 THRESHOLD = 5
 VAL_NUM = 30
 values = []
@@ -35,16 +34,6 @@ def recv(sock):
 def valuesAdd(address, value):
     for i in values:
         if (i[0][0]==address[0] and i[0][1]==address[1]):
-            #print("size of the value table = " + str(len(i[2])))
-
-            # i[1] = (i[1] + 1) % VAL_NUM # Calculate the new quantity of values
-            
-            # if (len(i[2]) == VAL_NUM and i[1] == 30):
-            #     # i[2][i[3]] = value
-            #     i[1] = 20 
-            #     return least_square(i[2], (i[3]+1) % VAL_NUM)
-            
-            # else:
             i[2].append(value) # Adding value to the list
             i[1] = (i[1] + 1) % VAL_NUM  # Updating the current index
 
@@ -55,8 +44,6 @@ def valuesAdd(address, value):
                 for j in range(0, 10):
                     del i[2][j]
                 print("Deleted 10 elements")
-                print(i[2])
-                print(len(i[2]))
                 if calculation > THRESHOLD:
                     return 'OPEN'
 
