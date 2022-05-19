@@ -21,17 +21,16 @@
 static linkaddr_t coordinator_addr = {{0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}};
 #endif /* MAC_CONF_WITH_TSCH */
 
-/*---------------------------------------------------------------------------*/
 PROCESS(process_unic, "unicast");
 PROCESS(process_broad, "broadcast");
 AUTOSTART_PROCESSES(&process_broad, &process_unic);
 
 /**
- * @brief Template of message that will be sent/received by the node
+ * Template of message that will be sent/received by the node
  */
 
 static int addrVal[2] = {0, 0};
-static linkaddr_t parent_addr; // = {{(addrVal[0]), (addrVal[1])}};
+static linkaddr_t parent_addr;
 static int rank = 255;
 static int rssi_parent = -1000;
 
@@ -50,10 +49,10 @@ struct message
     int valueRead;            /* value read and sent to the server */
 };
 
-// /**
-//  * @brief Routing table entry. Each node contains a routing table that
-//  * tells where to forward the data
-//  */
+/**
+ *  Routing table entry. Each node contains a routing table that
+ * tells where to forward the data
+ */
 struct routingEntry
 {
     int target[2];   // final node
@@ -81,13 +80,10 @@ static void create_packet(int broadUni, int mesType, int rankS, int addrSend[2],
     nullnet_len = sizeof(buf);
 }
 
-/*---------------------------------------------------------------------------
- * Function that will be called when the node receives any data
- *
- */
-
 void rcv_broadcast(struct message rcv_msg, const linkaddr_t *src);
 void rcv_unicast(struct message rcv_msg, const linkaddr_t *src);
+
+/* Function that is called when data is received */
 
 void input_callback(const void *data, uint16_t len,
                     const linkaddr_t *src, const linkaddr_t *dest)
@@ -149,13 +145,10 @@ void rcv_broadcast(struct message rcv_msg, const linkaddr_t *src)
         {
             if (rssi_parent < packetbuf_attr(PACKETBUF_ATTR_RSSI))
             { /* if it's better, it assumes the position of parent */
-                LOG_INFO("vai assumir");
-                LOG_INFO_("\n");
                 addrVal[0] = src->u8[0];
                 addrVal[1] = src->u8[1];
                 parent_addr.u8[0] = src->u8[0];
                 parent_addr.u8[1] = src->u8[1];
-                // linkaddr_set_node_addr(&parent_addr);
                 rssi_parent = packetbuf_attr(PACKETBUF_ATTR_RSSI);
                 rank = rcv_msg.rankSender + 1;
                 process_post(&process_broad, PROCESS_EVENT_MSG, "announce");
@@ -247,7 +240,7 @@ void rcv_unicast(struct message rcv_msg, const linkaddr_t *src)
         }
         else
         {
-            LOG_INFO("Passing command to open");
+            LOG_INFO("Passing command to open to %d %d", rcv_msg.addr_dest_opening[0], rcv_msg.addr_dest_opening[1]);
             LOG_INFO_("\n");
             process_post(&process_unic, PROCESS_EVENT_MSG, "forwardCommand");
             /* find the next node in the routing table and send the data to him */
@@ -258,7 +251,6 @@ void rcv_unicast(struct message rcv_msg, const linkaddr_t *src)
 PROCESS_THREAD(process_broad, ev, data)
 {
     static struct etimer timerBroad;
-    // static uint8_t bufRcv[6];
     int addrNode[2];
     addrNode[0] = linkaddr_node_addr.u8[0];
     addrNode[1] = linkaddr_node_addr.u8[1];
@@ -276,7 +268,7 @@ PROCESS_THREAD(process_broad, ev, data)
     while (1)
     {
 
-        etimer_set(&timerBroad, CLOCK_SECOND * 31);
+        etimer_set(&timerBroad, CLOCK_SECOND * 90);
         PROCESS_WAIT_EVENT();
 
         if (etimer_expired(&timerBroad))
@@ -295,23 +287,21 @@ PROCESS_THREAD(process_broad, ev, data)
         }
         else if (!strcmp(data, "parentDown"))
         {
-            create_packet(0, 1, rank, addrNode, 0); /* announce that it's down as well */
+            LOG_INFO("Node rank %d will tell everyone connected to him to reconnect", rank);
+            create_packet(0, 1, rank, addrNode, 0);
             NETSTACK_NETWORK.output(NULL);
         }
     }
 
     PROCESS_END();
 }
-/*---------------------------------------------------------------------------*/
 
 PROCESS_THREAD(process_unic, ev, data)
 {
     static struct etimer timerValve, sendData, forwardData;
-    // static uint8_t bufRcv[6];
     int addrNode[2];
     addrNode[0] = linkaddr_node_addr.u8[0];
     addrNode[1] = linkaddr_node_addr.u8[1];
-
     PROCESS_BEGIN();
 
     leds_off(LEDS_ALL);
@@ -331,15 +321,10 @@ PROCESS_THREAD(process_unic, ev, data)
 
         if (etimer_expired(&sendData))
         {
-            int readValue = random_rand();
-
-            LOG_INFO("Node %d sending %d as data", rank, readValue); // change data generation method
-            LOG_INFO_("\n");
-
             etimer_set(&sendData, CLOCK_SECOND * 2 + random_rand() % (CLOCK_SECOND * 8));
             PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&sendData));
 
-            create_packet(1, 2, rank, addrNode, 254); // random_rand()); /* send the data */
+            create_packet(1, 2, rank, addrNode, (random_rand() % 255)); /* send the data */
             linkaddr_t parentData = {{addrVal[0], addrVal[1], 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}};
             NETSTACK_NETWORK.output(&parentData);
             LOG_INFO("Send data from itself");

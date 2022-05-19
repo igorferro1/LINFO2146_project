@@ -16,14 +16,13 @@
 #include <string.h>
 
 #include "dev/serial-line.h"
+#include "cpu/msp430/dev/uart0.h"
 
-#define MAX_RETRANSMISSIONS 3
-/*---------------------------------------------------------------------------*/
 PROCESS(process_broad, "broadcast");
 PROCESS(process_unic, "runicast");
 PROCESS(test_serial, "Serial line test process");
 AUTOSTART_PROCESSES(&process_broad, &process_unic, &test_serial);
-/*---------------------------------------------------------------------------*/
+
 static int sendAddr[2];
 static int rank = 1;
 
@@ -66,17 +65,10 @@ create_packet(int broadUni, int mesType, int rankS, int addrSend[2], int valueR)
 	buf[5] = valueR;
 	LOG_INFO("Came to create the message, rank %d", buf[2]);
 	LOG_INFO_("\n");
-	// new_message->broadOrUni = broadUni;
-	// new_message->mType = mesType;
-	// new_message->rankSender = rankS;
-	// new_message->addr_dest_opening[0] = addrSend[0];
-	// new_message->addr_dest_opening[1] = addrSend[1];
-	// new_message->valueRead = valueR;
 	nullnet_buf = (uint8_t *)&buf;
 	nullnet_len = sizeof(buf);
 }
 
-/*---------------------------------------------------------------------------*/
 static void rcv_unicast(struct message rcv_msg, const linkaddr_t *src);
 
 void input_callback(const void *data, uint16_t len,
@@ -84,7 +76,6 @@ void input_callback(const void *data, uint16_t len,
 {
 	static uint8_t bufRcv[6];
 
-	// process_post(&process_broad, PROCESS_EVENT_MSG, "parentDown");
 	if (len == sizeof(bufRcv))
 	{
 
@@ -96,12 +87,6 @@ void input_callback(const void *data, uint16_t len,
 		(&rcv_msg)->addr_dest_opening[0] = bufRcv[3];
 		(&rcv_msg)->addr_dest_opening[1] = bufRcv[4];
 		(&rcv_msg)->valueRead = bufRcv[5];
-		int i = 0;
-		for (i = 0; i < 6; i++)
-		{
-			LOG_INFO("data %d, %d", i, bufRcv[i]);
-			LOG_INFO_("\n");
-		}
 
 		if (rcv_msg.broadOrUni == 0)
 		{
@@ -110,8 +95,6 @@ void input_callback(const void *data, uint16_t len,
 		{
 			if (((&rcv_msg)->mType == 2 && (&rcv_msg)->rankSender == rank + 1))
 			{
-				LOG_INFO("Entrou no unicast");
-				LOG_INFO_("\n");
 				rcv_unicast(rcv_msg, src);
 			}
 		}
@@ -151,17 +134,15 @@ static void rcv_unicast(struct message rcv_msg, const linkaddr_t *src)
 				break;
 			}
 		}
-
-		// HERE: SEND DATA TO EXTERNAL SERVER!!! SEE HOW TO DO IT
 	}
+	printf("serverMessage %d %d %d \n", rcv_msg.addr_dest_opening[0], rcv_msg.addr_dest_opening[1], rcv_msg.valueRead);
 }
 
 /* Processes */
 
 PROCESS_THREAD(process_broad, ev, data)
 {
-	static struct etimer timerBroad;
-	// static uint8_t bufRcv[6];
+	static struct etimer timerBroad, timerRebuild;
 	int addrNode[2];
 	addrNode[0] = linkaddr_node_addr.u8[0];
 	addrNode[1] = linkaddr_node_addr.u8[1];
@@ -176,10 +157,12 @@ PROCESS_THREAD(process_broad, ev, data)
 	nullnet_set_input_callback(input_callback);
 	NETSTACK_NETWORK.output(NULL);
 
+	etimer_set(&timerRebuild, CLOCK_SECOND * 300);
+
 	while (1)
 	{
 
-		etimer_set(&timerBroad, CLOCK_SECOND * 31);
+		etimer_set(&timerBroad, CLOCK_SECOND * 90);
 		PROCESS_WAIT_EVENT();
 
 		if (etimer_expired(&timerBroad))
@@ -191,12 +174,24 @@ PROCESS_THREAD(process_broad, ev, data)
 			create_packet(0, 0, rank, addrNode, 0); // value doesn't matter here
 			NETSTACK_NETWORK.output(NULL);
 		}
+		else if (etimer_expired(&timerRebuild))
+		{
+			LOG_INFO("Rebuilding the tree to optimize parents");
+			LOG_INFO_("\n");
+
+			etimer_set(&timerRebuild, CLOCK_SECOND * 2 + random_rand() % (CLOCK_SECOND * 8));
+			PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&timerBroad));
+
+			etimer_set(&timerRebuild, CLOCK_SECOND * 300);
+
+			create_packet(0, 1, rank, addrNode, 0); // value doesn't matter here
+			NETSTACK_NETWORK.output(NULL);
+		}
 	}
 
 	PROCESS_END();
 }
 
-/*---------------------------------------------------------------------------*/
 PROCESS_THREAD(process_unic, ev, data)
 {
 	PROCESS_BEGIN();
@@ -216,51 +211,63 @@ PROCESS_THREAD(process_unic, ev, data)
 		PROCESS_WAIT_EVENT();
 		if (!strcmp(data, "openValve"))
 		{
-			LOG_INFO("Will pass the comamand to open");
+			LOG_INFO("Will send the comamand to open");
 			LOG_INFO_("\n");
 			int presentInTable = 0;
 			int i;
-			linkaddr_t destinationCommand;
+
+			create_packet(1, 3, rank, sendAddr, rcv_msg.valueRead); /* announce that it's down as well */
+
 			for (i = 0; i < routingTSize; i = i + 1)
 			{
-				if (routingTable[i].target[0] == rcv_msg.addr_dest_opening[0] && routingTable[i].target[1] == rcv_msg.addr_dest_opening[1] && routingTable[i].alive)
+				if (routingTable[i].target[0] == sendAddr[0] && routingTable[i].target[1] == sendAddr[1] && routingTable[i].alive)
 				{
-					// if the node that sent is present on the table, we just updated from where it came from
-					destinationCommand.u8[0] = routingTable[i].nextJump[0];
-					destinationCommand.u8[1] = routingTable[i].nextJump[1];
+					LOG_INFO("Target %d %d, next jump %d %d", routingTable[i].target[0], routingTable[i].target[1], routingTable[i].nextJump[0], routingTable[i].nextJump[1]);
+					LOG_INFO_("\n");
+					linkaddr_t destinationCommand = {{routingTable[i].nextJump[0], routingTable[i].nextJump[1], 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}};
+					NETSTACK_NETWORK.output(&destinationCommand);
 					presentInTable = 1;
 					break;
 				}
 			}
 
-			create_packet(1, 3, rank, sendAddr, rcv_msg.valueRead); /* announce that it's down as well */
-
-			if (presentInTable)
+			if (!presentInTable)
 			{
-				NETSTACK_NETWORK.output(&destinationCommand);
-				LOG_INFO("Found on table");
-				LOG_INFO_("\n");
-			}
-			else
 				NETSTACK_NETWORK.output(NULL);
+			}
 		}
 	}
 
 	PROCESS_END();
 }
-/*---------------------------------------------------------------------------*/
+
 PROCESS_THREAD(test_serial, ev, data)
 {
 	PROCESS_BEGIN();
+	serial_line_init();
+	uart0_set_input(serial_line_input_byte);
 
 	while (1)
 	{
+
 		PROCESS_YIELD();
 		if (ev == serial_line_event_message)
 		{
-			printf("received line: %s\n", (char *)data);
-			// GET DATA (ADDRESS OF THE SENSOR TO OPEN THE VALVE) AND TRANSFORM HERE (SEE HOW TO DO IT!)
-			process_post(&process_unic, PROCESS_EVENT_MSG, "openValve");
+			/* If we get a message from the server we copy it first */
+			char *serialMsg = malloc(strlen((char *)data));
+
+			LOG_INFO("received line: %s\n", (char *)data);
+
+			strcpy(serialMsg, (char *)data);
+			/* Then tokenize it to get the values */
+			char *serverRec = strtok((char *)serialMsg, " ");
+
+			if (strcmp(serverRec, "openValve") == 0) /* If it's according to the set standard, then it copies the values */
+			{
+				sendAddr[0] = atoi(strtok(NULL, " ")); /* opens the valve for the address sent */
+				sendAddr[1] = atoi(strtok(NULL, " "));
+				process_post(&process_unic, PROCESS_EVENT_MSG, "openValve");
+			}
 		}
 	}
 	PROCESS_END();

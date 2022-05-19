@@ -11,15 +11,13 @@
 #define LOG_MODULE "App"
 #define LOG_LEVEL LOG_LEVEL_INFO
 
-#define MAX_RETRANSMISSIONS 3
-/*---------------------------------------------------------------------------*/
 PROCESS(process_broad, "broadcast");
 PROCESS(process_unic, "runicast");
 AUTOSTART_PROCESSES(&process_broad, &process_unic);
-/*---------------------------------------------------------------------------*/
-static int threshold = 5; // 30;
+
+static int threshold = 5;
 static int addrVal[2] = {0, 0};
-static linkaddr_t parent_addr; // = {{(addrVal[0]), (addrVal[1])}};
+static linkaddr_t parent_addr;
 static int rank = 255;
 static int rssi_parent = -1000;
 
@@ -38,10 +36,9 @@ struct message
 	int valueRead;			  /* value read and sent to the server */
 };
 
-// /**
-//  * @brief Routing table entry. Each node contains a routing table that
-//  * tells where to forward the data
-//  */
+/* Calculation table entry. It has the data necessary for the calculation to be done
+   and to associate the data to certain node */
+
 struct calculationEntry
 {
 	int node[2];
@@ -58,6 +55,11 @@ struct calcTable
 };
 
 static struct calcTable calculationTable;
+
+/**
+ * Routing table entry. Each node contains a routing table that
+ * tells where to forward the data
+ */
 
 struct routingEntry
 {
@@ -146,8 +148,7 @@ static void create_packet(int broadUni, int mesType, int rankS, int addrSend[2],
 	buf[3] = addrSend[0];
 	buf[4] = addrSend[1];
 	buf[5] = valueR;
-	LOG_INFO("Came to create the message, rank %d", buf[2]);
-	LOG_INFO_("\n");
+
 	nullnet_buf = (uint8_t *)&buf;
 	nullnet_len = sizeof(buf);
 }
@@ -205,7 +206,6 @@ void rcv_broadcast(struct message rcv_msg, const linkaddr_t *src)
 				addrVal[1] = src->u8[1];
 				parent_addr.u8[0] = src->u8[0];
 				parent_addr.u8[1] = src->u8[1];
-				// linkaddr_set_node_addr(&parent_addr);
 				rssi_parent = packetbuf_attr(PACKETBUF_ATTR_RSSI);
 				rank = rcv_msg.rankSender + 1;
 				process_post(&process_broad, PROCESS_EVENT_MSG, "announce");
@@ -226,11 +226,10 @@ void rcv_broadcast(struct message rcv_msg, const linkaddr_t *src)
 				routingTable[i].alive = 0;
 		}
 		process_post(&process_broad, PROCESS_EVENT_MSG, "parentDown");
-		/* clean routing table maybe */
 	}
 	if (rcv_msg.mType == 1 && rcv_msg.rankSender > rank)
 	{
-		/* if a node lost his parent and the node is more down the tree
+		/* if a node lost his parent and the node is more down the tree,
 			then we announce to reconnect that node */
 		process_post(&process_broad, PROCESS_EVENT_MSG, "announce");
 	}
@@ -250,13 +249,11 @@ void rcv_unicast(struct message rcv_msg, const linkaddr_t *src)
 		LOG_INFO("Comp node %d received data", rank);
 		LOG_INFO_("\n");
 
-		/* quebrar isso em 2 funcoes: ta no routing list?
-									  ta na lista de calcular aqui?
-									  */
 		int presentInTable = isInRoutTable(rcv_msg.addr_dest_opening, src);
 		int presentInCalcTable = isInCalcTable(rcv_msg.addr_dest_opening, src);
 
-		/* se estiver presente na table mas nao no calc entao ver se tem espaco e se sim botar na calc table */
+		/*  if it's present in the routing table but not in the calculation table, then it will check if there are
+			less than 5 entries in the calculation table, and if positive, it will add it to the calculation table */
 
 		if (presentInTable && !presentInCalcTable && calculationTable.amountOfEntries < 5)
 		{
@@ -268,9 +265,7 @@ void rcv_unicast(struct message rcv_msg, const linkaddr_t *src)
 			calculationTable.entries[index].alive = 1;
 			calculationTable.entries[index].valueQtt = 0;
 			calculationTable.entries[index].isFull = 0;
-			presentInCalcTable = isInCalcTable(rcv_msg.addr_dest_opening, src); /* add value to table and update var */
-			// calculationTable.entries[index].values[0] = rcv_msg.valueRead;
-			// calculationTable.entries[index].valueQtt += 1;
+			presentInCalcTable = isInCalcTable(rcv_msg.addr_dest_opening, src); /* add value to table and update count */
 			calculationTable.amountOfEntries += 1;
 		}
 		if (!presentInTable)
@@ -322,16 +317,6 @@ void rcv_unicast(struct message rcv_msg, const linkaddr_t *src)
 						calculationTable.entries[i].valueQtt = 20;
 						calculationTable.entries[i].isFull = 0;
 					}
-					/* already adding the data when checking if it's on the table */
-					// else
-					// {
-					// 	LOG_INFO("Comp node %d adding data %d to list", rank, rcv_msg.valueRead);
-					// 	LOG_INFO_("\n");
-					// 	calculationTable.entries[i].values[calculationTable.entries[i].valueQtt] = rcv_msg.valueRead;
-					// 	calculationTable.entries[i].valueQtt = calculationTable.entries[i].valueQtt + 1;
-					// 	if (calculationTable.entries[i].valueQtt == 30)
-					// 		calculationTable.entries[i].isFull = 1;
-					// }
 				}
 			}
 		}
@@ -364,7 +349,6 @@ void rcv_unicast(struct message rcv_msg, const linkaddr_t *src)
 PROCESS_THREAD(process_broad, ev, data)
 {
 	static struct etimer timerBroad;
-	// static uint8_t bufRcv[6];
 	int addrNode[2];
 	addrNode[0] = linkaddr_node_addr.u8[0];
 	addrNode[1] = linkaddr_node_addr.u8[1];
@@ -382,7 +366,7 @@ PROCESS_THREAD(process_broad, ev, data)
 	while (1)
 	{
 
-		etimer_set(&timerBroad, CLOCK_SECOND * 31);
+		etimer_set(&timerBroad, CLOCK_SECOND * 90);
 		PROCESS_WAIT_EVENT();
 
 		if (etimer_expired(&timerBroad))
@@ -409,7 +393,6 @@ PROCESS_THREAD(process_broad, ev, data)
 	PROCESS_END();
 }
 
-/*---------------------------------------------------------------------------*/
 PROCESS_THREAD(process_unic, ev, data)
 {
 	PROCESS_BEGIN();
@@ -460,4 +443,3 @@ PROCESS_THREAD(process_unic, ev, data)
 
 	PROCESS_END();
 }
-/*---------------------------------------------------------------------------*/
