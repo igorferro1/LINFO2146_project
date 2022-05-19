@@ -16,7 +16,8 @@ def main(ip, port):
     sock.connect((ip, port))
 
     for _ in range(20): 
-        sock.send(b"test\n")
+        sock.send(b"openValve 1 0\n")
+        print("well")
         data = recv(sock)
         print(data.decode("utf-8"))
         time.sleep(1)
